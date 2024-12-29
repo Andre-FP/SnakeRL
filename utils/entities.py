@@ -3,6 +3,9 @@ import numpy as np
 import pygame
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
+from matplotlib.lines import Line2D
+import mlflow
+import os
 
 
 class Snake:
@@ -120,6 +123,20 @@ class Food:
 class Statistics:
     def __init__(self):
         self.n_gameovers = 0
+        self.ax_prob = None
+        self.ax_avs = None
+        self.ax_death = None
+        self.ax_step_food = None
+        self.ax_score = None
+        
+
+    def save_statistics_mlflow(self):
+        axis = [self.ax_death, self.ax_step_food, self.ax_score]
+        plots_names = ['StepsDeath.png', 'StepsFood.png', 'Score.png']
+        for i, ax in enumerate(axis):
+            ax.figure.savefig(plots_names[i])
+            mlflow.log_artifact(plots_names[i])
+            os.remove(plots_names[i])
 
 
     def init_prob_chart(self, actions):
@@ -168,72 +185,129 @@ class Statistics:
         plt.pause(0.1)  
 
 
-
-
-
-    def init_plot_score(self):
-
+    def init_plot_graph(self, title="Training Snake Agent", xlabel="Games", ylabel="Score"):
+        
         plt.ion()  # Turns on interative mode
-        self.fig_score, self.ax_score = plt.subplots()
-        self.x_games, self.y_score, self.mov_avg_score = [], [], []
+        _, ax_score = plt.subplots()
+        x_games, y_score, mov_avg_score = [], [], []
         
         # Set lines
-        self.line, = self.ax_score.plot(
-            self.x_games, self.y_score, 'b-', label="Score"
+        line, = ax_score.plot(
+            x_games, y_score, 'b-', label="Score"
         )  
-        self.line_mov_avg, = self.ax_score.plot(
-            self.x_games, self.mov_avg_score, 'o-', label="Mob Mean Score"
+        line_mov_avg, = ax_score.plot(
+            x_games, mov_avg_score, 'o-', label="Mob Mean Score"
         )  
 
         # Axis configs
-        self.ax_score.set_xlim(0, 10)
-        self.ax_score.set_ylim(0, 10)
+        ax_score.set_xlim(0, 10)
+        ax_score.set_ylim(0, 10)
 
         # Configure o eixo X para ter uma quantidade razoável de marcações
-        self.ax_score.xaxis.set_major_locator(MaxNLocator(integer=True, prune='lower'))
-        self.ax_score.yaxis.set_major_locator(MaxNLocator(integer=True))
+        ax_score.xaxis.set_major_locator(MaxNLocator(integer=True, prune='lower'))
+        ax_score.yaxis.set_major_locator(MaxNLocator(integer=True))
 
-        self.ax_score.set_title("Training Snake Agent")
-        self.ax_score.set_xlabel("Games")
-        self.ax_score.set_ylabel("Score")
-        self.ax_score.legend()
+        ax_score.set_title(title)
+        ax_score.set_xlabel(xlabel)
+        ax_score.set_ylabel(ylabel)
+        ax_score.legend()
 
         # Add annotations for the ends of the lines
-        self.annotation1 = self.ax_score.annotate("", xy=(0, 0), xytext=(0, 0),
+        annotation1 = ax_score.annotate("", xy=(0, 0), xytext=(0, 0),
                           textcoords="offset points", color="red", fontsize=10)
-        self.annotation2 = self.ax_score.annotate("", xy=(0, 0), xytext=(0, 0),
+        annotation2 = ax_score.annotate("", xy=(0, 0), xytext=(0, 0),
                           textcoords="offset points", color="blue", fontsize=10)
-        return True
+        
+        return ax_score, annotation1, annotation2, \
+            x_games, y_score, mov_avg_score, line, line_mov_avg
 
-    def compute_mov_avg_score(self, lenght=5):
-        if len(self.y_score) >= lenght:
-            return sum(self.y_score[-1:-lenght-1:-1])/lenght
-        return sum(self.y_score)/len(self.y_score)
+
+    def init_plot_score(self):
+        self.ax_score, self.annot1_score, self.annot2_score, \
+            self.x_games_score, self.y_score, self.mov_avg_score, \
+            self.line_score, self.line_mov_avg_score = self.init_plot_graph(
+                title="Training Snake Agent", 
+                xlabel="Games", 
+                ylabel="Score"
+            )
+        return True
+    
+    def init_plot_steps_death(self):
+        self.ax_death, self.annot1_death, self.annot2_death, \
+            self.x_games_death, self.y_death, self.mov_avg_death, \
+            self.line_death, self.line_mov_avg_death = self.init_plot_graph(
+                title="Training Snake Agent - Steps until Death", 
+                xlabel="Games", 
+                ylabel="Steps - Death"
+        )
+        return True
+    
+    def init_plot_steps_food(self):
+        self.ax_step_food, self.annot1_step_food, self.annot2_step_food, \
+            self.x_games_step_food, self.y_step_food, self.mov_avg_step_food, \
+            self.line_step_food, self.line_mov_avg_step_food = self.init_plot_graph(
+                title="Training Snake Agent - Steps until Food", 
+                xlabel="Games", 
+                ylabel="Steps - Food"
+            )
+        return True
+    
+
+    def compute_mov_avg_score(self, buffer_score, lenght=5):
+        if len(buffer_score) >= lenght:
+            return sum(buffer_score[-1:-lenght-1:-1])/lenght
+        return sum(buffer_score)/len(buffer_score)
+
+
+    def update_plot_graph(self, score, ax: plt.Axes, annot1: plt.Annotation, 
+                          annot2: plt.Annotation, x_games: list, 
+                          y_value: list, y_avg: list, 
+                          line: Line2D, line_avg: Line2D):
+
+        # New values of X and Y
+        x_games.append(len(x_games) + 1)  
+        y_value.append(score)        
+        y_avg.append(self.compute_mov_avg_score(y_value, lenght=10))        
+        
+        # Update line data
+        line.set_xdata(x_games)      
+        line.set_ydata(y_value)
+        line_avg.set_xdata(x_games)      
+        line_avg.set_ydata(y_avg)
+
+        # Adjusts X and Y limits if needed
+        ax.set_xlim(0, max(x_games) + 1)  
+        ax.set_ylim(min(y_value) - 1, max(y_value) + 1)
+        
+        # Update annotation text and position for Line 1
+        annot1.set_text(f"{y_value[-1]:.4f}")  # Numeric value for Line 1
+        annot1.xy = (x_games[-1], y_value[-1])  # Place annotation at the end of Line 1
+
+        # Update annotation text and position for Line 2
+        annot2.set_text(f"{y_avg[-1]:.4f}")  # Numeric value for Line 2
+        annot2.xy = (x_games[-1], y_avg[-1])  # Place annotation at the end of Line 2
+
+        plt.pause(0.1)  # Pausa para atualização visual 
 
 
     def update_plot_score(self, score):        
-        # New values of X and Y
-        self.n_gameovers += 1
-        self.x_games.append(self.n_gameovers)  
-        self.y_score.append(score)        
-        self.mov_avg_score.append(self.compute_mov_avg_score(lenght=10))        
-        
-        # Update line data
-        self.line.set_xdata(self.x_games)      
-        self.line.set_ydata(self.y_score)
-        self.line_mov_avg.set_xdata(self.x_games)      
-        self.line_mov_avg.set_ydata(self.mov_avg_score)
+        self.update_plot_graph(
+            score, self.ax_score, self.annot1_score, self.annot2_score, 
+            self.x_games_score, self.y_score, self.mov_avg_score, 
+            self.line_score, self.line_mov_avg_score
+        )
 
-        # Adjusts X and Y limits if needed
-        self.ax_score.set_xlim(0, max(self.x_games) + 1)  
-        self.ax_score.set_ylim(min(self.y_score) - 1, max(self.y_score) + 1)
-        
-        # Update annotation text and position for Line 1
-        self.annotation1.set_text(f"{self.y_score[-1]:.4f}")  # Numeric value for Line 1
-        self.annotation1.xy = (self.x_games[-1], self.y_score[-1])  # Place annotation at the end of Line 1
+    def update_plot_steps_death(self, steps_death):        
+        self.update_plot_graph(
+            steps_death, self.ax_death, self.annot1_death, self.annot2_death, 
+            self.x_games_death, self.y_death, self.mov_avg_death, 
+            self.line_death, self.line_mov_avg_death
+        )
 
-        # Update annotation text and position for Line 2
-        self.annotation2.set_text(f"{self.mov_avg_score[-1]:.4f}")  # Numeric value for Line 2
-        self.annotation2.xy = (self.x_games[-1], self.mov_avg_score[-1])  # Place annotation at the end of Line 2
-
-        plt.pause(0.1)  # Pausa para atualização visual
+    def update_plot_steps_food(self, steps_food):   
+        self.update_plot_graph(
+            steps_food, self.ax_step_food, self.annot1_step_food, self.annot2_step_food, 
+            self.x_games_step_food, self.y_step_food, self.mov_avg_step_food, 
+            self.line_step_food, self.line_mov_avg_step_food
+        )     
+    

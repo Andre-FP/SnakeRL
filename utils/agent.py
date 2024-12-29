@@ -15,14 +15,16 @@ import random
 #
 #   TODO:
 #   - Verificações:
-#   0 - Colocar no GitHub
-#   1 - Verificar se tem algum erro na implementação da memória de replay
-#   2 - Verificar se tem algum outro erro no código inteiro. 
+#   
+# V 1 - Verificar se tem algum erro na implementação da memória de replay
+# 
+# v 2 - Verificar se tem algum outro erro no código inteiro. 
 #        -> Fazer print por print (essa parte deveria ser como?... E etc)
 #
 #   3 - Procurar otimizações do código (ChatGPT pode ajudar)
-#   4 - Fazer visualização da quantidade de passos até morrer, e da quantidade
+# V 4 - Fazer visualização da quantidade de passos até morrer, e da quantidade
 #       média de passos para cada comida comida.
+# V 5 - Salvar no mlflow toda vez que apertar Ctrl + C
 
 
 #   - Melhorias:
@@ -37,6 +39,8 @@ import random
 #   6 - Testar com CNN, a partir dos estados da cobra concatenado com a comida, 
 #       ou tudo junto como se fosse uma imagem mesmo, mas sem imagem, apenas a 
 #       matriz. 
+#           -> Testar com uma grid só. Food como "3". Talvez cabeça como "2".
+#           -> Colocar direção e cabeça como estados também.
 #
 #   -- Melhorias RL:
 #   1 - Testar recompensa diferente (módulo menor de recompensa)
@@ -72,8 +76,8 @@ class Agent:
         self.last_action = None
 
         # Rewards
-        self.R_GAME_OVER = -50
-        self.R_EAT_FOOD = 50
+        self.R_GAME_OVER = -10
+        self.R_EAT_FOOD = 10
         self.R_NEUTRAL = 0
         self.R_OPPOSITE = 0
 
@@ -82,13 +86,13 @@ class Agent:
         self.learning_rate = 1e-4       # Optimizer AdamW
         self.amsgrad = True             # Optimizer AdamW
         self.tau = 1                    # Softmax Policy
-        self.batch_size = 60
-        self.memory_size = self.batch_size*4
+        self.batch_size = 64
+        self.memory_size = 10000
         self.n_replays = 10
 
         self.replay_memory = ReplayMemory(self.memory_size)
         self.model = AgentDeepQNetwork(
-            self.last_state.shape[1]*self.last_state.shape[2], 
+           # self.last_state.shape[1]*self.last_state.shape[2], 
             len(self.actions)
         ).to(self.device)
 
@@ -131,8 +135,7 @@ class Agent:
 
     def get_state(self):
         return torch.tensor(
-            np.append(
-                self.snake_pos_grid, self.food_pos_grid, axis=0), 
+                np.stack([self.snake_pos_grid, self.food_pos_grid], axis=0), 
                 dtype=torch.float32
             ).to(self.device).unsqueeze(0)
 
@@ -154,47 +157,24 @@ class Agent:
         return action_index
 
     def agent_start(self):
-        #print("\n\nagent_start")
         self.last_state = self.get_state()
-        #print("self.last_state =", self.last_state)
-        #print("self.last_state.shape =", self.last_state.shape)
-
         self.last_action = self.policy(self.last_state)
-        #print("Action =", self.last_action, self.actions[self.last_action])
         return self.last_action
 
 
     def rl_update(self, last_state, last_action, reward, state, is_terminal):
         
         ###### 1 - Get Q(s, a) and Q(s + 1, a):
-        # Get Q(s, a)
-        #print("Soft Update: last_state =", last_state)
-        #print("last_state.shape =", last_state.shape)
-        #print("self.model(last_state) =", self.model(last_state))
-        #print("last_action =", last_action)
-
         Q_s_a = self.model(last_state).gather(1, last_action).squeeze(1)
-        #print("Q_s_a =", Q_s_a)
-        
                                         #      (batch, n_actions)
         
-        #print("is_terminal =", is_terminal)
-
         # Get Q(s + 1, :)
         with torch.no_grad():
             Q_next_s_actions = torch.zeros((last_state.shape[0], len(self.actions))).to(self.device)
             Q_next_s_actions[~is_terminal] = self.model(state[~is_terminal])
             Q_next_s_a_max = torch.max(Q_next_s_actions, dim=1).values
         
-        #print("Q_next_s_actions =", Q_next_s_actions)
-
         # Q-Learning (After, test with Expected Sarsa)
-
-        #print("Q_next_s_a_max =", Q_next_s_a_max)
-        #print("Q_next_s_a_max.shape =", Q_next_s_a_max.shape)
-        #print("reward =", reward)
-        #print("reward.shape =", reward.shape)
-
 
         #################### RL Update ####################
 
@@ -217,11 +197,25 @@ class Agent:
         # Execute one step of back propagation with AdamW
         self.optimizer.step()
 
+    def soft_update(self):
+        
+        # Batch (state, action, reward, next_state, is_terminal)
+        for _ in range(self.n_replays):
+            experiences = self.replay_memory.sample(self.batch_size)
+            states, actions, rewards, next_states, is_terminal = zip(*experiences)
+
+            states = torch.cat(states, axis=0)
+            next_states = torch.cat(next_states, axis=0)
+            actions = torch.tensor(actions).to(self.device).unsqueeze(1)
+            rewards = torch.stack(rewards, axis=0)#.unsqueeze(0)
+            is_terminal = torch.tensor(is_terminal).to(self.device)
+
+            self.rl_update(states, actions, rewards, next_states, is_terminal)
+
+
 
     def agent_step(self, reward):
 
-        #print("\n\nagent_step")
-        
         terminal_state = reward == self.R_GAME_OVER
         reward = torch.tensor(reward, dtype=torch.float32).to(self.device)
 
@@ -229,7 +223,6 @@ class Agent:
             state = torch.zeros_like(self.last_state).to(self.device)
         else:
             state = self.get_state()
-
 
         # Save experience in memory
         # (state, action, reward, next_state, terminal)
@@ -240,13 +233,7 @@ class Agent:
         ############# Update #############
         ###### 1 - Get Q(s, a) and Q(s + 1, a):
         # Get Q(s, a)
-        ##print("Real Update: self.last_state =", self.last_state)
-        ##print("self.last_state.shape =", self.last_state.shape)
-        ##print("self.model(self.last_state) =", self.model(self.last_state))
-        ##print("self.last_action =", self.last_action)
-
         Q_s_a = self.model(self.last_state)[0][self.last_action]
-        ##print("Q_s_a =", Q_s_a)
 
         with torch.no_grad():
             Q_next_s_actions = torch.zeros((1, len(self.actions))).to(self.device)
@@ -256,18 +243,13 @@ class Agent:
             with torch.no_grad():
                 Q_next_s_actions[:] = self.model(state)
         
-        ##print("Q_next_s_actions =", Q_next_s_actions)
         # Q-Learning (After, test with Expected Sarsa)
         with torch.no_grad():
             Q_next_s_a_max = torch.max(Q_next_s_actions)
         
-        ##print("Q_next_s_a_max =", Q_next_s_a_max)
-
-        
         #################### RL Update ####################
 
         ###### 2 - Calculate TD - Error
-        
         target_exp_return = reward + self.gamma*Q_next_s_a_max
         estimated = Q_s_a
 
@@ -288,37 +270,8 @@ class Agent:
 
 
         #################### Soft Update (Replay memory) ####################
-        # Batch (state, action, reward, next_state, is_terminal)
-        for _ in range(self.n_replays):
-            experiences = self.replay_memory.sample(self.batch_size)
-            states, actions, rewards, next_states, is_terminal = zip(*experiences)
-
-            #print("\n\nReplay Memory len =", len(self.replay_memory))
-            #print("Rewards =", rewards)
-            #print("states =", states)
-            #print("len(states) =", len(states))
-            #print("actions =", actions)
-            #print("next_states =", next_states)
-            #print("is_terminal =", is_terminal)
-
-
-            states = torch.cat(states, axis=0)
-            next_states = torch.cat(next_states, axis=0)
-            actions = torch.tensor(actions).to(self.device).unsqueeze(1)
-            rewards = torch.stack(rewards, axis=0)#.unsqueeze(0)
-            is_terminal = torch.tensor(is_terminal).to(self.device)
-
-            #print("\n\nAfter reshape:")
-            #print("Rewards =", rewards)
-            #print("states =", states)
-            #print("states.shape =", states.shape)
-            #print("actions =", actions)
-            #print("next_states =", next_states)
-            #print("is_terminal =", is_terminal)
-
-
-
-            self.rl_update(states, actions, rewards, next_states, is_terminal)
+        if len(self.replay_memory) >= self.batch_size:
+            self.soft_update()
 
         ############# Next Action #############
         self.last_action = self.policy(state, reward)
@@ -358,6 +311,8 @@ class Agent:
         # Execute one step of back propagation with AdamW
         self.optimizer.step()
 
+        if len(self.replay_memory) >= self.batch_size:
+            self.soft_update()
 
 
 
@@ -379,7 +334,7 @@ class ReplayMemory:
         return len(self.memory)
 
 
-class AgentDeepQNetwork(nn.Module):
+"""class AgentDeepQNetwork(nn.Module):
     def __init__(self, len_states, len_output):
         super().__init__()
         self.flatten = nn.Flatten(start_dim=1)
@@ -396,5 +351,37 @@ class AgentDeepQNetwork(nn.Module):
         #print("forward: x =", x)
         #print("forward: x.shape =", x.shape)
         logits = self.linear_relu_stack(x)
-        return logits
+        return logits"""
         
+
+
+class AgentDeepQNetwork(nn.Module):
+    def __init__(self, len_output):
+        super(AgentDeepQNetwork, self).__init__()
+        
+        # Convolutional Layers
+        self.conv_stack = nn.Sequential(
+            nn.Conv2d(in_channels=2, out_channels=16, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2, stride=2),  # Reduz para 4x3
+            
+            nn.Conv2d(in_channels=16, out_channels=32, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2, stride=2),  # Reduz para 2x1
+        )
+        
+        # Fully Connected Layers
+        self.fc_stack = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(32 * 2 * 1, 128),  # Ajuste baseado na saída do último pooling
+            nn.ReLU(),
+            nn.Linear(128, len_output)
+        )
+
+    def forward(self, x):
+        #print("forward: x =", x)
+        #print("forward: x.shape =", x.shape)
+
+        x = self.conv_stack(x)
+        x = self.fc_stack(x)
+        return x
