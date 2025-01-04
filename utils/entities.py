@@ -16,8 +16,8 @@ class Snake:
         self.direction = None
         self.directions = {
             "LEFT": [-1, 0],
-            "RIGHT": [1, 0],
             "UP": [0, -1],
+            "RIGHT": [1, 0],
             "DOWN": [0, 1],
         }
         
@@ -156,11 +156,12 @@ class Statistics:
         self.update_bar_chart(self.bars_avss, action_values, self.ax_avs)
 
 
-    def init_bar_chart(self, actions_labels, title="Policy pi(s)", ylabel="Probability", limit=None, num_bars=4):
+    def init_bar_chart(self, actions_labels, title="Policy pi(s)", ylabel="Probability", limit=None):
         fig_bar, ax_bar = plt.subplots()
         ax_bar.set_title(title)
         ax_bar.set_xlabel("Action")
         ax_bar.set_ylabel(ylabel)
+        num_bars = len(actions_labels)
         bars = ax_bar.bar(range(1, num_bars + 1), [0] * num_bars, color='blue', edgecolor='black')
 
         ax_bar.set_xticks(range(1, num_bars + 1))

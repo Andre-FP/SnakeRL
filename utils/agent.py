@@ -28,11 +28,14 @@ import random
 
 
 #   - Melhorias:
-#   1 - Eliminar uma ação. Colocar só esquerda, frente e direita relativa.
-#   2 - Tentar acrescentar a informação da cabeça da cobra E/OU do sentido dela
+# V 1 - Eliminar uma ação. Colocar só esquerda, frente e direita relativa.
+# V 2 - Tentar acrescentar a informação da cabeça da cobra E/OU do sentido dela
 #       também. (para dar a informação do sentido dela, e de onde ela está. 
 #       Esse último porque quando fica em linha reta completa, não dá para saber
 #       onde a cabeça está, e parece que é o mesmo estado) (procurar saber mais)
+
+#   2.1 - Testar a cabeça em um canal diferente da CNN, se não tiver funcionado.
+
 #   3 - Inicializar bem os parâmetros da rede (ver vídeo do coursera)
 #   4 - Testar diferentes combinações de camadas e neurônios.
 #   5 - Experimentar Dropout.
@@ -70,9 +73,10 @@ class Agent:
         self.snake = snake
         self.food = food
         self.statistics = stats
-        self.actions = list(self.snake.directions.keys())
+        self.actions = ["LEFT", "FOWARD", "RIGHT"]
         
         self.last_state = self.get_state()
+        self.last_direction = self.snake_direction_onehot
         self.last_action = None
 
         # Rewards
@@ -113,9 +117,10 @@ class Agent:
 
         #print("\n\nSnake body:")
         #print(self.snake.body)
-
-
-        return ~self.snake.all_free_positions & 1
+        snake_position = ~self.snake.all_free_positions & 1
+        head = self.snake.body[-1]
+        snake_position[head[1], head[0]] = 2
+        return snake_position
 
     @property
     def food_pos_grid(self):
@@ -132,6 +137,17 @@ class Agent:
         #print(food_grid)
 
         return food_grid
+    
+    @property
+    def snake_direction_onehot(self):
+        directions = list(self.snake.directions.keys())
+        direction_onehot = torch.zeros(
+            len(directions), dtype=torch.float32
+        ).to(self.device)
+        direction_onehot[directions.index(self.snake.direction)] = 1
+        direction_onehot = direction_onehot.unsqueeze(0)
+        return direction_onehot
+        
 
     def get_state(self):
         return torch.tensor(
@@ -139,9 +155,9 @@ class Agent:
                 dtype=torch.float32
             ).to(self.device).unsqueeze(0)
 
-    def policy(self, state, reward=None):
+    def policy(self, state, snake_direction, reward=None):
         softmax_policy = torch.nn.Softmax(dim=0)
-        action_values = self.model(state)[0]
+        action_values = self.model(state, snake_direction)[0]
         
         # Control Softmax
         act_vals_control = action_values/self.tau
@@ -151,27 +167,31 @@ class Agent:
         actions_soft_probs = softmax_policy(act_vals_control)
         action_index = torch.multinomial(actions_soft_probs, 1).item()
         if reward == self.R_GAME_OVER or reward == self.R_EAT_FOOD:
-            self.statistics.update_probs_chart(actions_soft_probs.tolist())
-            self.statistics.update_act_values_chart(act_vals_control.tolist())
+            pass
+            #self.statistics.update_probs_chart(actions_soft_probs.tolist())
+            #self.statistics.update_act_values_chart(act_vals_control.tolist())
 
         return action_index
 
     def agent_start(self):
         self.last_state = self.get_state()
-        self.last_action = self.policy(self.last_state)
+        self.last_direction = self.snake_direction_onehot
+
+        self.last_action = self.policy(self.last_state, self.last_direction)
         return self.last_action
 
 
-    def rl_update(self, last_state, last_action, reward, state, is_terminal):
+    def rl_update(self, last_state, last_directions, last_action, reward, 
+                  state, directions, is_terminal):
         
         ###### 1 - Get Q(s, a) and Q(s + 1, a):
-        Q_s_a = self.model(last_state).gather(1, last_action).squeeze(1)
+        Q_s_a = self.model(last_state, last_directions).gather(1, last_action).squeeze(1)
                                         #      (batch, n_actions)
         
         # Get Q(s + 1, :)
         with torch.no_grad():
             Q_next_s_actions = torch.zeros((last_state.shape[0], len(self.actions))).to(self.device)
-            Q_next_s_actions[~is_terminal] = self.model(state[~is_terminal])
+            Q_next_s_actions[~is_terminal] = self.model(state[~is_terminal], directions[~is_terminal])
             Q_next_s_a_max = torch.max(Q_next_s_actions, dim=1).values
         
         # Q-Learning (After, test with Expected Sarsa)
@@ -202,15 +222,19 @@ class Agent:
         # Batch (state, action, reward, next_state, is_terminal)
         for _ in range(self.n_replays):
             experiences = self.replay_memory.sample(self.batch_size)
-            states, actions, rewards, next_states, is_terminal = zip(*experiences)
+            states, directions, actions, rewards, next_states, \
+                next_directions, is_terminal = zip(*experiences)
 
             states = torch.cat(states, axis=0)
+            directions = torch.cat(directions, axis=0)
             next_states = torch.cat(next_states, axis=0)
+            next_directions = torch.cat(next_directions, axis=0)
             actions = torch.tensor(actions).to(self.device).unsqueeze(1)
             rewards = torch.stack(rewards, axis=0)#.unsqueeze(0)
             is_terminal = torch.tensor(is_terminal).to(self.device)
 
-            self.rl_update(states, actions, rewards, next_states, is_terminal)
+            self.rl_update(states, directions, actions, rewards, 
+                           next_states, next_directions, is_terminal)
 
 
 
@@ -227,13 +251,14 @@ class Agent:
         # Save experience in memory
         # (state, action, reward, next_state, terminal)
         self.replay_memory.append(
-            (self.last_state, self.last_action, reward, state, terminal_state)
+            (self.last_state, self.last_direction, self.last_action, 
+             reward, state, self.snake_direction_onehot, terminal_state)
         )
 
         ############# Update #############
         ###### 1 - Get Q(s, a) and Q(s + 1, a):
         # Get Q(s, a)
-        Q_s_a = self.model(self.last_state)[0][self.last_action]
+        Q_s_a = self.model(self.last_state, self.last_direction)[0][self.last_action]
 
         with torch.no_grad():
             Q_next_s_actions = torch.zeros((1, len(self.actions))).to(self.device)
@@ -241,7 +266,7 @@ class Agent:
         # Get Q(s + 1, :)
         if not terminal_state:
             with torch.no_grad():
-                Q_next_s_actions[:] = self.model(state)
+                Q_next_s_actions[:] = self.model(state, self.snake_direction_onehot)
         
         # Q-Learning (After, test with Expected Sarsa)
         with torch.no_grad():
@@ -274,8 +299,9 @@ class Agent:
             self.soft_update()
 
         ############# Next Action #############
-        self.last_action = self.policy(state, reward)
+        self.last_action = self.policy(state, self.snake_direction_onehot, reward)
         self.last_state = state
+        self.last_direction = self.snake_direction_onehot
         
         return self.last_action
     
@@ -284,13 +310,17 @@ class Agent:
         ############# Update #############
         ###### 1 - Get Q(s, a) and Q(s + 1, a):
         # Get Q(s, a)
-        Q_s_a = self.model(self.last_state)[0][self.last_action]
+        Q_s_a = self.model(self.last_state, self.last_direction)[0][self.last_action]
 
         next_state = torch.zeros_like(self.last_state).to(self.device)
         reward = torch.tensor(reward, dtype=torch.float32).to(self.device)
 
         # (state, action, reward, next_state, terminal)
-        self.replay_memory.append((self.last_state, self.last_action, reward, next_state, True))
+        self.replay_memory.append(
+            (self.last_state, self.last_direction, 
+             self.last_action, reward, next_state, 
+             self.snake_direction_onehot, True)
+        )
 
         ###### 2 - Calculate TD - Error
         target_exp_return = reward
@@ -321,7 +351,7 @@ class ReplayMemory:
         self.memory = deque(maxlen=memory_size)
 
     def append(self, experience):
-        # (state, action, reward, next_state, terminal)
+        # (state, direction, action, reward, next_state, terminal)
         self.memory.append(experience)
 
     def sample(self, batch_size):
@@ -372,16 +402,19 @@ class AgentDeepQNetwork(nn.Module):
         
         # Fully Connected Layers
         self.fc_stack = nn.Sequential(
-            nn.Flatten(),
-            nn.Linear(32 * 2 * 1, 128),  # Ajuste baseado na saída do último pooling
+            nn.Linear(32 * 2 * 1 + 4, 128),  # Ajuste baseado na saída do último pooling
             nn.ReLU(),
             nn.Linear(128, len_output)
         )
 
-    def forward(self, x):
+    def forward(self, x, direction):
         #print("forward: x =", x)
         #print("forward: x.shape =", x.shape)
 
         x = self.conv_stack(x)
+        x = x.view(x.size(0), -1)  # Flatten the output of conv_stack
+
+        # Concatenate the direction information
+        x = torch.cat((x, direction), dim=1)   
         x = self.fc_stack(x)
         return x

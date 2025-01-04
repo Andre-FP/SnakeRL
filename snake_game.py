@@ -162,8 +162,20 @@ class Game:
                    reward = self.agent.R_OPPOSITE
         return reward
 
+    def get_real_direction(self, relative_action):
+        directions = list(self.snake.directions.keys())
+        idx_current = directions.index(self.snake.direction)
+        if relative_action == "RIGHT":
+            idx_current += 1
+        elif relative_action == "LEFT":
+            idx_current -= 1
+        idx_current = idx_current % 4
+        return directions[idx_current] 
+
+
     def press_keyboard(self, idx_action):
-        action = self.agent.actions[idx_action]
+        action_rel = self.agent.actions[idx_action]
+        action = self.get_real_direction(action_rel)   
 
         if action == "UP":
             key = pygame.K_UP
@@ -299,8 +311,8 @@ class Game:
 
     def run(self):
         self.started = False
-        self.statistics.init_prob_chart(self.agent.actions)
-        self.statistics.init_act_values_chart(self.agent.actions)
+        #self.statistics.init_prob_chart(self.agent.actions)
+        #self.statistics.init_act_values_chart(self.agent.actions)
         self.statistics.init_plot_score()
         self.statistics.init_plot_steps_death()
         self.statistics.init_plot_steps_food()
