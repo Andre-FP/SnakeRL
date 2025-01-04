@@ -130,15 +130,6 @@ class Statistics:
         self.ax_score = None
         
 
-    def save_statistics_mlflow(self):
-        axis = [self.ax_death, self.ax_step_food, self.ax_score]
-        plots_names = ['StepsDeath.png', 'StepsFood.png', 'Score.png']
-        for i, ax in enumerate(axis):
-            ax.figure.savefig(plots_names[i])
-            mlflow.log_artifact(plots_names[i])
-            os.remove(plots_names[i])
-
-
     def init_prob_chart(self, actions):
         self.fig_prob, self.ax_prob, self.bars_probs = self.init_bar_chart(
             actions, limit=1

@@ -7,6 +7,7 @@ import tkinter as tk
 from tkinter import messagebox
 import matplotlib.pyplot as plt
 import mlflow
+import os
 
 
 class Game:
@@ -46,6 +47,7 @@ class Game:
         self.steps_food = 0
 
         self.total_spaces = (self.width // self.block_size) * (self.height // self.block_size)
+        self.mlflow_wp = MlflowWrapper(self, self.agent, self.statistics)
 
 
     def handle_events(self):
@@ -218,54 +220,46 @@ class Game:
         self.last_two_actions.append(self.agent.actions[idx_next_action])
 
 
-    def ui_save_statistics(self):
-        # Criação do botão de confirmação
-        screen = pygame.display.set_mode((500, 300))
-        font = pygame.font.Font(None, 36)
-        
-        yes_button = pygame.Rect(100, 150, 120, 50)
-        no_button = pygame.Rect(280, 150, 120, 50)
-        
-        running_dialog = True
-        while running_dialog:
-            screen.fill((30, 30, 30))
-            question = font.render("Save statistics in Mlflow?", True, (255, 255, 255))
-            screen.blit(question, (50, 50))
 
-            pygame.draw.rect(screen, (0, 200, 0), yes_button)
-            pygame.draw.rect(screen, (200, 0, 0), no_button)
-            
-            yes_text = font.render("Yes", True, (255, 255, 255))
-            no_text = font.render("No", True, (255, 255, 255))
-            screen.blit(yes_text, (yes_button.x + 40, yes_button.y + 10))
-            screen.blit(no_text, (no_button.x + 40, no_button.y + 10))
-            
-            pygame.display.flip()
-            
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    running_dialog = False
-                    self.running = False
-                if event.type == pygame.MOUSEBUTTONDOWN:
-                    if yes_button.collidepoint(event.pos):
-                        print("Saving statistics in Mlflow")
-                        running_dialog = False
-                    elif no_button.collidepoint(event.pos):
-                        print("Discarding statistics in Mlflow")
-                        running_dialog = False
+    def run(self):
+        self.started = False
+        #self.statistics.init_prob_chart(self.agent.actions)
+        #self.statistics.init_act_values_chart(self.agent.actions)
+        self.statistics.init_plot_score()
+        self.statistics.init_plot_steps_death()
+        self.statistics.init_plot_steps_food()
+        while self.running:
+            self.handle_events()
+            self.update()
+            self.draw()
+            self.act_agent()
+
+            self.clock.tick(self.speed)
+
+        plt.close("all")
+        self.mlflow_wp.ui_save_results()
+        pygame.quit()
 
 
-    def set_mlflow(self):
+
+class MlflowWrapper:
+    def __init__(self, game: Game, agent: Agent, statistics: Statistics):
+        self.game = game
+        self.agent = agent
+        self.statistics = statistics
+
+
+    def set_mlflow(self, run_name=None):
         mlflow.set_tracking_uri("http://localhost:5000")
         mlflow.set_experiment("snake-rl")
-        mlflow.start_run()
+        mlflow.start_run(run_name=run_name)
 
         ## Save parameters
         # Game
-        mlflow.log_param("screen_width", self.width)
-        mlflow.log_param("screen_height", self.height)
-        mlflow.log_param("block_size", self.block_size)
-        mlflow.log_param("speed", self.speed)
+        mlflow.log_param("screen_width", self.game.width)
+        mlflow.log_param("screen_height", self.game.height)
+        mlflow.log_param("block_size", self.game.block_size)
+        mlflow.log_param("speed", self.game.speed)
 
         # Agent
         mlflow.log_param("actions", self.agent.actions)
@@ -285,8 +279,14 @@ class Game:
         mlflow.log_param("R_OPPOSITE", self.agent.R_OPPOSITE)
 
 
+    def save_statistics(self, axis: list, plots_names: list):
+        for i, ax in enumerate(axis):
+            ax.figure.savefig(plots_names[i])
+            mlflow.log_artifact(plots_names[i])
+            os.remove(plots_names[i])
 
-    def ui_save_statistics(self):
+
+    def ui_save_results(self):
         root = tk.Tk()
         root.withdraw()  # Esconde a janela principal
 
@@ -298,7 +298,10 @@ class Game:
         if option:
             print("Saving statistics in Mlflow")
             self.set_mlflow()
-            self.statistics.save_statistics_mlflow()
+            self.save_statistics(
+                [self.statistics.ax_death, self.statistics.ax_step_food, self.statistics.ax_score], 
+                ['StepsDeath.png', 'StepsFood.png', 'Score.png']
+            )
             mlflow.log_artifact(__file__)
             mlflow.log_artifact("./utils/agent.py")
             mlflow.log_artifact("./utils/entities.py")
@@ -307,27 +310,6 @@ class Game:
 
         else:
             print("Discarding statistics")
-
-
-    def run(self):
-        self.started = False
-        #self.statistics.init_prob_chart(self.agent.actions)
-        #self.statistics.init_act_values_chart(self.agent.actions)
-        self.statistics.init_plot_score()
-        self.statistics.init_plot_steps_death()
-        self.statistics.init_plot_steps_food()
-        while self.running:
-            self.handle_events()
-            self.update()
-            self.draw()
-            self.act_agent()
-
-            self.clock.tick(self.speed)
-
-        plt.close("all")
-        self.ui_save_statistics()
-        pygame.quit()
-
 
 
 # Run the game

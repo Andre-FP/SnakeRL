@@ -34,12 +34,12 @@ import random
 #       Esse último porque quando fica em linha reta completa, não dá para saber
 #       onde a cabeça está, e parece que é o mesmo estado) (procurar saber mais)
 
-#   2.1 - Testar a cabeça em um canal diferente da CNN, se não tiver funcionado.
+# D 2.1 - Testar a cabeça em um canal diferente da CNN, se não tiver funcionado. (Funcionou bem, posso deixar para depois)
 
-#   3 - Inicializar bem os parâmetros da rede (ver vídeo do coursera)
+# V 3 - Inicializar bem os parâmetros da rede (ver vídeo do coursera) -> (Pytorch que faz isso (assumo que é ótimo))
 #   4 - Testar diferentes combinações de camadas e neurônios.
 #   5 - Experimentar Dropout.
-#   6 - Testar com CNN, a partir dos estados da cobra concatenado com a comida, 
+# V 6 - Testar com CNN, a partir dos estados da cobra concatenado com a comida, 
 #       ou tudo junto como se fosse uma imagem mesmo, mas sem imagem, apenas a 
 #       matriz. 
 #           -> Testar com uma grid só. Food como "3". Talvez cabeça como "2".
