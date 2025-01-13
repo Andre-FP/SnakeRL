@@ -44,3 +44,28 @@ The influence of its change haven't be evaluated yet, becoming a future update.
 For a while it was kept +10 for eating and -10 for each death. It was tried to rise the magnitude of both values, or to rise the relative difference but it was not observed any difference. So it kept these initial values and it will be tunned later when the actor critic algorithmn being in place.
 
 ### 4) Hyperparameters
+
+gamma = 0.98 and alpha = 0.0001 were parameters that gave better results while tuning within a small range. It is necessary tunneling them, as well as other hyperparameters, when a better solution is finded (Aplication of Actor-Critic, for example).  
+
+### 5) Choice of algorithmn: Deep Q-Learning Network, Actor-Critic Network
+
+The Deep Q-Learning Network were implemented giving good results, but not suficient to finish the game. The Actor-Critic and other algorithmns need to be tested
+
+### 6) Choice of neural network (MLP, CNN...) and numbers of layers and neurones.
+
+CNN and MLP were evaluated, getting better results with the CNN applied to the grid. The numbers of layers and neurones need to be tuned also. (All tunneling parts will be done after Actor-Critic implemented)
+
+### 7) Use of Memmory Replay for planning
+
+With the use of memmory replay, the algorithmn learned incontably faster. On the other hand, it slightly slowed down the execution.
+
+
+## Conclusion: Next Steps
+
+* Implement Actor-Critic algorithmn
+* Hyperparameter and neural network tunneling.
+* Test others choices of states
+* Implement offline algoritmns
+* Implement others more advanced algorithmns.
+
+
