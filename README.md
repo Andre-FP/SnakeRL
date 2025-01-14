@@ -3,7 +3,7 @@
 The goal of this project is to apply what I learned of Reinforcement Learning from the course "Reinforcement Learning Specialization" of University of Alberta & Alberta Machine Intelligence Institute on Coursera. (https://coursera.org/share/18f2f63dd50e447d53aeb43391ed8774)
 
 ## Objectives
-Evaluate to understand how the following parameters and RL algorithm influence the desired performance in a real project:
+Evaluate to understand how the following parameters and RL algorithm influence the desired performance in a real project: 
 1) Choice of states
 2) Choice of actions
 3) Choice of Rewards
